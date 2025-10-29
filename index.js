@@ -14,26 +14,26 @@ const io = new Server(server, {
 });
 
 const PORT = process.env.PORT || 4000;
-
 const waitingQueue = [];
-const activePairs = new Map(); // socket.id => partner.id
+const activePairs = new Map(); // socketId -> partnerId
 
 io.on('connection', (socket) => {
-  console.log('Connected:', socket.id);
+  console.log('Socket connected:', socket.id);
 
-  // user joins queue
   socket.on('join', () => {
+    console.log(`${socket.id} requested join`);
     if (waitingQueue.length > 0) {
       const partnerId = waitingQueue.shift();
-      if (partnerId === socket.id) return; // sanity check
 
-      // link both users
+      // create pair
       activePairs.set(socket.id, partnerId);
       activePairs.set(partnerId, socket.id);
 
-      io.to(socket.id).emit('matched', { partnerId });
-      io.to(partnerId).emit('matched', { partnerId: socket.id });
-      console.log(`Paired ${socket.id} ↔ ${partnerId}`);
+      // Decide initiator: the `socket` (the new joiner) will be initiator (creates offer)
+      io.to(socket.id).emit('matched', { partnerId, initiator: true });
+      io.to(partnerId).emit('matched', { partnerId: socket.id, initiator: false });
+
+      console.log(`Paired ${socket.id} (initiator) ↔ ${partnerId}`);
     } else {
       waitingQueue.push(socket.id);
       socket.emit('waiting');
@@ -42,11 +42,13 @@ io.on('connection', (socket) => {
   });
 
   socket.on('signal', ({ to, data }) => {
-    if (to) io.to(to).emit('signal', { from: socket.id, data });
+    if (to) {
+      io.to(to).emit('signal', { from: socket.id, data });
+    }
   });
 
   socket.on('leave', () => handleLeave(socket.id, 'manual leave'));
-  socket.on('disconnect', () => handleLeave(socket.id, 'disconnected'));
+  socket.on('disconnect', () => handleLeave(socket.id, 'disconnect'));
 
   function handleLeave(id, reason) {
     console.log(`${id} ${reason}`);
@@ -55,17 +57,19 @@ io.on('connection', (socket) => {
 
     const partnerId = activePairs.get(id);
     if (partnerId) {
+      // notify partner
       io.to(partnerId).emit('partner-left');
-      activePairs.delete(id);
+      // remove pair
       activePairs.delete(partnerId);
-
-      // Requeue the remaining partner automatically
+      activePairs.delete(id);
+      // put remaining partner back into queue
       waitingQueue.push(partnerId);
       io.to(partnerId).emit('waiting');
+      console.log(`Partner ${partnerId} requeued after ${id} left`);
     }
   }
 });
 
-app.get('/', (req, res) => res.send('✅ Connect backend running'));
+app.get('/', (req, res) => res.send('Connect backend running ✅'));
 
-server.listen(PORT, () => console.log(`🚀 Server on port ${PORT}`));
+server.listen(PORT, () => console.log(`Server listening on port ${PORT}`));
