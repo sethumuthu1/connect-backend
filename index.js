@@ -1,4 +1,3 @@
-// connect-backend/index.js
 const express = require('express');
 const http = require('http');
 const cors = require('cors');
@@ -26,7 +25,7 @@ const activePairs = new Map(); // socketId -> partnerId
 io.on('connection', (socket) => {
   console.log(`🟢 Socket connected: ${socket.id}`);
 
-  // When a user joins
+  // ─────────── JOIN ROOM ───────────
   socket.on('join', () => {
     console.log(`📥 ${socket.id} requested to join`);
 
@@ -56,23 +55,41 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Handle WebRTC signaling messages (offer/answer/ICE)
+  // ─────────── WEBRTC SIGNALS ───────────
   socket.on('signal', ({ to, data }) => {
     if (to) {
       io.to(to).emit('signal', { from: socket.id, data });
-      // Optional: add logging for debug
-      if (data?.type) console.log(`📡 Signal: ${socket.id} → ${to} (${data.type})`);
-      else if (data?.candidate) console.log(`❄️ ICE candidate from ${socket.id} → ${to}`);
+      // Optional debug logs
+      if (data?.type)
+        console.log(`📡 Signal: ${socket.id} → ${to} (${data.type})`);
+      else if (data?.candidate)
+        console.log(`❄️ ICE candidate from ${socket.id} → ${to}`);
     }
   });
 
-  // Handle manual leave
+  // ─────────── CHAT MESSAGE ───────────
+  socket.on("chat-message", ({ to, text }) => {
+    const partnerId = activePairs.get(socket.id);
+
+    // verify both partner and text
+    if (!partnerId || !text) return;
+
+    // Send message to partner
+    io.to(partnerId).emit("chat-message", { from: socket.id, text });
+
+    // (Optional) Echo back to sender for confirmation if needed:
+    // socket.emit("chat-message", { from: socket.id, text });
+
+    console.log(`💬 ${socket.id} → ${partnerId}: ${text}`);
+  });
+
+  // ─────────── MANUAL LEAVE ───────────
   socket.on('leave', () => handleLeave(socket.id, 'left manually'));
 
-  // Handle disconnect
+  // ─────────── DISCONNECT ───────────
   socket.on('disconnect', () => handleLeave(socket.id, 'disconnected'));
 
-  // ──────────────────────────────────────────────
+  // ─────────── CLEANUP FUNCTION ───────────
   function handleLeave(id, reason) {
     console.log(`🔴 ${id} ${reason}`);
 
@@ -103,7 +120,7 @@ io.on('connection', (socket) => {
 
 // ──────────────────────────────────────────────
 app.get('/', (req, res) => {
-  res.send('✅ Connect backend is running!');
+  res.send('✅ Connect backend is running with chat support!');
 });
 
 server.listen(PORT, () => {
